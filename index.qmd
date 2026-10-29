@@ -1,0 +1,140 @@
+---
+title: "water temp at 8656483"
+date: today
+format: 
+  html:
+    code-fold: true
+---
+
+# get water temp at the dml noaa station 8656483
+
+## set up api string
+
+```{r}
+# CONSTANTS
+NUMBEROFDAYSBACK <- 15
+
+# string parts
+GENERALHEADER <- "https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?"
+PRODUCTHEAD <- "product="
+APPLICATIONHEAD <- "&application="
+BEGINDATEHEAD <- "&begin_date="
+ENDDATEHEAD <- "&end_date="
+STATIONHEAD <- "&station="
+TIMEZONEHEAD <- "&time_zone="
+UNITSHEAD <- "&units="
+INTERVALHEAD <- "&interval="
+FORMATHEAD <- "&format="
+
+# general settings
+TIMEZONE <- "GMT"
+UNITS <- "english"
+FORMAT <- "csv"
+
+# modify these as needed
+INTERVAL = "h"
+
+STATION <- "8656483"
+PRODUCT <- "water_temperature"
+APPLICATION <- "NOS.COOPS.TAC.PHYSOCEAN"
+
+# grab the current date to get the last 15 days
+curdate <- Sys.Date()
+dateback30 <- curdate - NUMBEROFDAYSBACK
+
+# format the begin and end dates
+BEGINDATE <- format(dateback30, "%Y%m%d")
+ENDDATE <- format(curdate, "%Y%m%d")
+
+# also make a seperate call to get data from 1 year ago
+BEGINDATE_historic <- paste0(as.numeric(format(dateback30, "%Y")) - 1, format(dateback30, "%m%d"))
+ENDDATE_historic <- paste0(as.numeric(format(curdate, "%Y")) - 1, format(curdate, "%m%d"))
+
+# build the string
+apistring <- paste0(
+  GENERALHEADER,
+  PRODUCTHEAD, PRODUCT,
+  APPLICATIONHEAD, APPLICATION,
+  BEGINDATEHEAD, BEGINDATE,
+  ENDDATEHEAD, ENDDATE,
+  STATIONHEAD, STATION,
+  TIMEZONEHEAD, TIMEZONE,
+  UNITSHEAD, UNITS,
+  INTERVALHEAD, INTERVAL,
+  FORMATHEAD, FORMAT
+)
+
+apistring_historic <- paste0(
+  GENERALHEADER,
+  PRODUCTHEAD, PRODUCT,
+  APPLICATIONHEAD, APPLICATION,
+  BEGINDATEHEAD, BEGINDATE_historic,
+  ENDDATEHEAD, ENDDATE_historic,
+  STATIONHEAD, STATION,
+  TIMEZONEHEAD, TIMEZONE,
+  UNITSHEAD, UNITS,
+  INTERVALHEAD, INTERVAL,
+  FORMATHEAD, FORMAT
+)
+```
+
+## load data from api
+
+```{r}
+dat <- read.table(apistring, header = TRUE, sep = ',', stringsAsFactors = FALSE)
+dat_historic <- read.table(apistring_historic, header = TRUE, sep = ',', stringsAsFactors = FALSE)
+
+# predict the date format
+if(INTERVAL == "h") {
+  dateformat = "%Y-%m-%d %H:%M"
+} else if(INTERVAL == "6") {
+  dateformat = "%Y-%m-%d %H:%M:%S"
+} else {
+  stop(paste("i don't recognize the interval format", INTERVAL))
+}
+
+# make a posix time note the format
+dat$datetime_POSIX <- as.POSIXct(dat$Date.Time, format = dateformat, tz = "UTC")
+dat_historic$datetime_POSIX <- as.POSIXct(dat_historic$Date.Time, format = dateformat, "UTC")
+dat_historic$datetime_POSIX_match <- as.POSIXct(
+  paste0(as.numeric(format(dat_historic$datetime_POSIX, "%Y")) + 1, format(dat_historic$datetime_POSIX, "%m%d%H%M%S")),
+  format = "%Y%m%d%H%M%S",
+  tz = "UTC"
+)
+```
+
+## make a quick plot
+
+Broken purple line indicates 60°F, red points are below this temperature. Grey broken line indicates last year on the same day.
+
+```{r}
+# build the y axis range to always include 62 and go 2 degrees below the lowest just to make it look nice
+ylims <- range(c(62, dat$Water.Temperature, dat_historic$Water.Temperature), na.rm = TRUE) + c(-2, 0)
+
+# make the plot
+plot(dat$datetime_POSIX, dat$Water.Temperature,
+  type = 'l',
+  ylim = ylims,
+  xlab = "",
+  ylab = expression("water temperature (" * degree * F * ")")
+)
+
+lines(dat_historic$datetime_POSIX_match, dat_historic$Water.Temperature, col = "grey55", lty = 3)
+
+# add the annotations
+abline(h = 60, lty = 2, lwd = 2, col = "purple")
+dese <- which(dat$Water.Temperature < 60)
+points(dat$datetime_POSIX[dese], dat$Water.Temperature[dese], col = "red", pch = 16, cex = 0.5)
+```
+
+
+## changelog
+
+- 2026-03-04  added historic temperatures (1 year ago for fun)
+- 2025-11-07  reduced to 15 day history for clarity
+
+
+## wishlist
+
+- show last years temps going forward 15 days from day as well?
+- CI
